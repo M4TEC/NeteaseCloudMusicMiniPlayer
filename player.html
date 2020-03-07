@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Stream Player</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+        div.player {
+            color: white;
+            min-height: 48px;
+            background: linear-gradient(to right,#6cf,transparent);
+        }
+        .thumbnail {
+            position: absolute;
+            width: 48px;
+            height: 48px;
+        }
+        .songname {
+            white-space: nowrap;
+            font-size: 20px;
+            margin: 0;
+            margin-left: 50px;
+        }
+        .lyric {
+            white-space: nowrap;
+            font-size: 12px;
+            margin: 0;
+            margin-left: 50px;
+            transition: all .1s linear;
+        }
+    </style>
+</head>
+<body>
+    <div class="player" style="display:none;">
+        <img class="thumbnail"/>
+        <p class="songname"></p>
+        <p class="lyric"></p>
+    </div>
+    <audio src="" id="aud"></audio>
+    <script src="https://cdn.staticfile.org/jquery/3.4.1/jquery.min.js"></script>
+    <script>
+        !function($) {
+            var songs = [];
+            var currentPlaying = {};
+            var lrcStartPos = 0;
+            var lrc = null;
+            var lastMainLrc = "";
+            $("#aud").on("ended",function() {
+                next();
+            });
+            function getAllUrlParams(url) {
+                var queryString = url ? url.split('?')[1] : window.location.search.slice(1);
+                var obj = {};
+                if (queryString) {
+                    queryString = queryString.split('#')[0];
+                    var arr = queryString.split('&');
+                    for (var i = 0; i < arr.length; i++) {
+                        var a = arr[i].split('=');
+                        var paramName = a[0];
+                        var paramValue = typeof (a[1]) === 'undefined' ? true : a[1];
+                        paramName = paramName.toLowerCase();
+                        if (typeof paramValue === 'string') paramValue = paramValue.toLowerCase();
+                        if (paramName.match(/\[(\d+)?\]$/)) {
+                            var key = paramName.replace(/\[(\d+)?\]/, '');
+                            if (!obj[key]) obj[key] = [];
+                            if (paramName.match(/\[\d+\]$/)) {
+                                var index = /\[(\d+)\]/.exec(paramName)[1];
+                                obj[key][index] = paramValue;
+                            } else {
+                                obj[key].push(paramValue);
+                            }
+                        } else {
+                            if (!obj[paramName]) {
+                                obj[paramName] = paramValue;
+                            } else if (obj[paramName] && typeof obj[paramName] === 'string') {
+                                obj[paramName] = [obj[paramName]];
+                                obj[paramName].push(paramValue);
+                            } else {
+                                obj[paramName].push(paramValue);
+                            }
+                        }
+                    }
+                }
+                return obj;
+            }
+            function lyricFrame() {
+                let aud = $("#aud")[0];
+                let mainLrc = "";
+                if (lrc != null&&!$("#aud")[0].paused) {
+                    for (let i = lrcStartPos;i<lrc.length;i++) {
+                        let line = lrc[i];
+                        if (i == lrc.length-1||lrc[i+1].Time > aud.currentTime*1000) {
+                            if (lrc[i].Time < aud.currentTime*1000) {
+                                mainLrc = line.Value;
+                            } else {
+                                lrcStartPos = 0;
+                                break;
+                            }
+                            lrcStartPos = i;
+                            break;
+                        }
+                    }
+                }
+                if (mainLrc != lastMainLrc) {
+                    $(".lyric").css("opacity","0");
+                    setTimeout(function() {
+                        if (mainLrc == "") {
+                            $(".lyric").html("&nbsp;");
+                        } else {
+                            $(".lyric").text(mainLrc);
+                        }
+                        $(".lyric").css("opacity","1");
+                    },100);
+                    lastMainLrc = mainLrc;
+                }
+                requestAnimationFrame(lyricFrame);
+            }
+            function getLyric(id) {
+                lrcStartPos = 0;
+                lrc = null;
+                $.ajax({
+                    url:"https://api.texl.top/netease/lyric/?id=" + id,
+                    success:function(data) {
+                        if (currentPlaying.id != id) {return;}
+                        if (data.code != 200) {return;}
+                        if (data.lyric == null) {return;}
+                        lrc = data.lyric.lrc;
+                    },
+                    dataType:"json"
+                });
+            }
+            function play(index) {
+                var song = songs[index];
+                if (song == undefined) {return;}
+                currentPlaying = song;
+                currentPlaying.index = index;
+                $(".thumbnail").attr("src",song.thumbnail);
+                $(".songname").text(song.name + " - " + song.artists);
+                $("#aud").attr("src","https://music.163.com/song/media/outer/url?id=" + song.id + ".mp3");
+                $("#aud")[0].play();
+                getLyric(song.id);
+            }
+            function next() {
+                if (currentPlaying == null) {play(0);return;}
+                if (currentPlaying.index == songs.length-1) {
+                    play(0);
+                } else {
+                    play(currentPlaying.index+1);
+                }
+            }
+            function prev() {
+                if (currentPlaying == null) {play(songs.length-1);return;}
+                if (currentPlaying.index == 0) {
+                    play(songs.length-1);
+                } else {
+                    play(currentPlaying.index-1);
+                }
+            }
+            $.ajax({
+                url: "https://tenmahw.com/tPlayer/tplayer.php?id=2717890285",
+                success: function(result) {
+                    if (result["code"] == 200) {
+                        for (var track of result["result"]["tracks"]) {
+                            let artists = "";
+                            for (let artist of track.artists) {
+                                artists += artist.name + ", ";
+                            }
+                            artists = artists.substring(0,artists.length-2);
+                            var song = {
+                                id: track["id"],
+                                name: track["name"],
+                                artists: artists,
+                                album: track["album"]["name"],
+                                thumbnail: track["album"]["picUrl"]
+                            }
+                            songs.push(song);
+                        }
+                        if (getAllUrlParams()["index"] == undefined) {
+                            play(0);
+                        } else {
+                            play(parseInt(getAllUrlParams()["index"]));
+                        }
+                        $("div.player").css("display","block");
+                        lyricFrame();
+                    }
+                },
+                dataType: "json"
+            });
+        }(jQuery);
+    </script>
+</body>
+</html>
